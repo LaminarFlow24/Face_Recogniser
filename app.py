@@ -1,44 +1,50 @@
-import streamlit as st
+import io
 import joblib
-import numpy as np
 from PIL import Image
-from torchvision import transforms
-from face_recognition import preprocessing, FaceFeaturesExtractor
+import streamlit as st
+from face_recognition import preprocessing
 
-# Load the trained model
-MODEL_PATH = 'model/face_recogniser.pkl'
-model = joblib.load(MODEL_PATH)
+# Load the face recognizer model
+face_recogniser = joblib.load('model/face_recogniser.pkl')
+preprocess = preprocessing.ExifOrientationNormalize()
 
-# Define image preprocessing function
-def preprocess_image(image):
-    transform = transforms.Compose([
-        preprocessing.ExifOrientationNormalize(),
-        transforms.Resize(1024)
-    ])
-    return transform(image)
+# Streamlit interface
+st.title("Face Recognition Application")
 
-# Streamlit app
-st.title("Face Recognition App")
+# File uploader for the image
+uploaded_file = st.file_uploader("Upload an image...", type=["jpg", "jpeg", "png"])
 
-uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
+# Checkbox to include all predictions
+include_predictions = st.checkbox("Include all predictions", value=False)
 
+# If an image is uploaded
 if uploaded_file is not None:
-    # Load the uploaded image
-    image = Image.open(uploaded_file).convert('RGB')
-    st.image(image, caption='Uploaded Image', use_column_width=True)
-
+    # Read the image
+    img = Image.open(io.BytesIO(uploaded_file.read()))
+    
     # Preprocess the image
-    preprocessed_image = preprocess_image(image)
-
-    # Extract features
-    features_extractor = model.features_extractor
-    _, embedding = features_extractor(preprocessed_image)
-
-    if embedding is None:
-        st.write("No face detected in the image.")
+    img = preprocess(img)
+    
+    # Convert image to RGB (stripping alpha channel if exists)
+    img = img.convert('RGB')
+    
+    # Perform face recognition
+    faces = face_recogniser(img)
+    
+    # Display the uploaded image
+    st.image(img, caption='Uploaded Image', use_column_width=True)
+    
+    # Display results
+    st.subheader("Recognition Results")
+    if faces:
+        for idx, face in enumerate(faces):
+            st.markdown(f"### Face {idx + 1}")
+            st.markdown(f"**Top Prediction:** {face.top_prediction.label} (Confidence: {face.top_prediction.confidence:.2f})")
+            st.markdown(f"**Bounding Box:** Left: {face.bb.left}, Top: {face.bb.top}, Right: {face.bb.right}, Bottom: {face.bb.bottom}")
+            
+            if include_predictions:
+                st.markdown("**All Predictions:**")
+                for pred in face.all_predictions:
+                    st.markdown(f"- {pred.label}: {pred.confidence:.2f}")
     else:
-        # Predict the class
-        prediction = model.classifier.predict([embedding.flatten()])
-        class_name = model.idx_to_class[prediction[0]]
-
-        st.write(f"Predicted class: {class_name}")
+        st.warning("No faces detected.")
