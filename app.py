@@ -9,10 +9,6 @@ from face_recognition import preprocessing
 face_recogniser = joblib.load('model/face_recogniser.pkl')
 preprocess = preprocessing.ExifOrientationNormalize()
 
-# Initialize session state to store multiple columns of data
-if 'df' not in st.session_state:
-    st.session_state.df = pd.DataFrame()
-
 # Streamlit interface
 st.title("Face Recognition Application")
 
@@ -43,7 +39,7 @@ if uploaded_file is not None:
     # Display the uploaded image
     st.image(img, caption='Uploaded Image', use_column_width=True)
     
-    # Prepare data for the new column
+    # Prepare data for Excel
     recognized_names = []
 
     # Display results
@@ -64,17 +60,11 @@ if uploaded_file is not None:
     else:
         st.warning("No faces detected.")
 
-    # Add data to session state dataframe
+    # Save recognized names to an Excel file
+    
     if recognized_names:
-        column_name = f"{lecture_name} ({lecture_date})"
-        st.session_state.df[column_name] = pd.Series(recognized_names)
-        st.success(f"Added data for {lecture_name} on {lecture_date}")
-
-# Button to add another column
-if st.button("Add Another Lecture"):
-    st.experimental_rerun()
-
-# Button to download the CSV file
-if not st.session_state.df.empty:
-    csv = st.session_state.df.to_csv(index=False)
-    st.download_button(label="Download CSV", data=csv, file_name='attendance.csv', mime='text/csv')
+        df = pd.DataFrame({f"{lecture_name} ({lecture_date})": recognized_names})
+        csv = df.to_csv(index=False)
+        st.download_button(label="Get CSV", data=csv, file_name='attendance.csv', mime='text/csv')
+        
+        
