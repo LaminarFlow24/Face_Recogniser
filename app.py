@@ -1,5 +1,6 @@
 import io
 import joblib
+import pandas as pd
 from PIL import Image
 import streamlit as st
 from face_recognition import preprocessing
@@ -10,6 +11,10 @@ preprocess = preprocessing.ExifOrientationNormalize()
 
 # Streamlit interface
 st.title("Face Recognition Application")
+
+# Date and name of the lecture
+lecture_date = st.date_input("Select the date of the lecture")
+lecture_name = st.text_input("Enter the name of the lecture")
 
 # File uploader for the image
 uploaded_file = st.file_uploader("Upload an image...", type=["jpg", "jpeg", "png"])
@@ -34,6 +39,9 @@ if uploaded_file is not None:
     # Display the uploaded image
     st.image(img, caption='Uploaded Image', use_column_width=True)
     
+    # Prepare data for Excel
+    recognized_names = []
+
     # Display results
     st.subheader("Recognition Results")
     if faces:
@@ -42,9 +50,20 @@ if uploaded_file is not None:
             st.markdown(f"**Top Prediction:** {face.top_prediction.label} (Confidence: {face.top_prediction.confidence:.2f})")
             st.markdown(f"**Bounding Box:** Left: {face.bb.left}, Top: {face.bb.top}, Right: {face.bb.right}, Bottom: {face.bb.bottom}")
             
+            # Add name to recognized names list
+            recognized_names.append(face.top_prediction.label)
+            
             if include_predictions:
                 st.markdown("**All Predictions:**")
                 for pred in face.all_predictions:
                     st.markdown(f"- {pred.label}: {pred.confidence:.2f}")
     else:
         st.warning("No faces detected.")
+
+    # Save recognized names to an Excel file
+    if recognized_names:
+        df = pd.DataFrame({f"{lecture_name} ({lecture_date})": recognized_names})
+        excel_buffer = io.BytesIO()
+        with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
+            df.to_excel(writer, index=False)
+        st.download_button(label="Download Attendance", data=excel_buffer, file_name=f"{lecture_name}_{lecture_date}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
