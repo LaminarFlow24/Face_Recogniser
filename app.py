@@ -61,9 +61,10 @@ if uploaded_file is not None:
         st.warning("No faces detected.")
 
     # Save recognized names to an Excel file
+    
     if recognized_names:
         df = pd.DataFrame({f"{lecture_name} ({lecture_date})": recognized_names})
-        excel_buffer = io.BytesIO()
-        with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
-            df.to_excel(writer, index=False)
-        st.download_button(label="Download Attendance", data=excel_buffer, file_name=f"{lecture_name}_{lecture_date}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        csv = df.to_csv(index=False)
+        st.download_button(label="Get CSV", data=csv, file_name='attendance.csv', mime='text/csv')
+        
+        
