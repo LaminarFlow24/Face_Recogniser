@@ -1,70 +1,102 @@
-import io
-import joblib
-import pandas as pd
-from PIL import Image
 import streamlit as st
+import cv2
+import numpy as np
+import joblib
+from PIL import Image
 from face_recognition import preprocessing
+from huggingface_hub import hf_hub_download
+import os
 
-# Load the face recognizer model
-face_recogniser = joblib.load('model/face_recogniser.pkl')
+# Define the Hugging Face repository details
+REPO_ID = "Yashas2477/SE2_og"  # Replace with your Hugging Face repository
+FILENAME = "face_recogniser.pkl"  # Replace with your model filename
+
+# Cache the model download
+@st.cache_data
+def download_model_from_huggingface():
+    st.info("Downloading model from Hugging Face...")
+    try:
+        model_path = hf_hub_download(repo_id=REPO_ID, filename=FILENAME, cache_dir="model_cache")
+        st.success("Model downloaded successfully!")
+        return model_path
+    except Exception as e:
+        st.error(f"Error downloading model: {e}")
+        raise
+
+# Cache the model loading
+@st.cache_resource
+def load_model():
+    model_path = download_model_from_huggingface()
+    try:
+        model = joblib.load(model_path)
+        st.success("Model loaded successfully!")
+        return model
+    except Exception as e:
+        st.error(f"Error loading model: {e}")
+        raise
+
+# Load the cached model
+face_recogniser = load_model()
 preprocess = preprocessing.ExifOrientationNormalize()
 
-# Streamlit interface
-st.title("Face Recognition Application")
+# Streamlit app
+st.title("Live Face Recognition")
+st.write("This app performs face recognition on live webcam feed.")
 
-# Date and name of the lecture
-lecture_date = st.date_input("Select the date of the lecture")
-lecture_name = st.text_input("Enter the name of the lecture")
+# Helper function to process and predict faces
+def process_frame(frame):
+    # Convert frame to PIL Image for preprocessing
+    pil_img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+    pil_img = preprocess(pil_img)
+    pil_img = pil_img.convert('RGB')
 
-# File uploader for the image
-uploaded_file = st.file_uploader("Upload an image...", type=["jpg", "jpeg", "png"])
+    # Predict faces
+    faces = face_recogniser(pil_img)
 
-# Checkbox to include all predictions
-include_predictions = st.checkbox("Include all predictions", value=False)
+    # Annotate the frame with bounding boxes and labels
+    for face in faces:
+        bb = face.bb._asdict()
+        top_left = (int(bb['left']), int(bb['top']))
+        bottom_right = (int(bb['right']), int(bb['bottom']))
+        label = face.top_prediction.label
+        confidence = face.top_prediction.confidence
 
-# If an image is uploaded
-if uploaded_file is not None:
-    # Read the image
-    img = Image.open(io.BytesIO(uploaded_file.read()))
-    
-    # Preprocess the image
-    img = preprocess(img)
-    
-    # Convert image to RGB (stripping alpha channel if exists)
-    img = img.convert('RGB')
-    
-    # Perform face recognition
-    faces = face_recogniser(img)
-    
-    # Display the uploaded image
-    st.image(img, caption='Uploaded Image', use_column_width=True)
-    
-    # Prepare data for Excel
-    recognized_names = []
+        # Draw bounding box and label on the frame
+        cv2.rectangle(frame, top_left, bottom_right, (0, 255, 0), 2)
+        cv2.putText(
+            frame, f"{label} ({confidence:.2f})", (top_left[0], top_left[1] - 10),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1
+        )
 
-    # Display results
-    st.subheader("Recognition Results")
-    if faces:
-        for idx, face in enumerate(faces):
-            st.markdown(f"### Face {idx + 1}")
-            st.markdown(f"**Top Prediction:** {face.top_prediction.label} (Confidence: {face.top_prediction.confidence:.2f})")
-            st.markdown(f"**Bounding Box:** Left: {face.bb.left}, Top: {face.bb.top}, Right: {face.bb.right}, Bottom: {face.bb.bottom}")
-            
-            # Add name to recognized names list
-            recognized_names.append(face.top_prediction.label)
-            
-            if include_predictions:
-                st.markdown("**All Predictions:**")
-                for pred in face.all_predictions:
-                    st.markdown(f"- {pred.label}: {pred.confidence:.2f}")
+    return frame
+
+# Start the webcam feed
+run = st.checkbox('Start Webcam')
+frame_placeholder = st.empty()
+
+if run:
+    cap = cv2.VideoCapture(0)
+
+    if not cap.isOpened():
+        st.error("Unable to access the webcam. Make sure it is connected and try again.")
     else:
-        st.warning("No faces detected.")
+        st.info("Press 'q' to stop the webcam.")
 
-    # Save recognized names to an Excel file
-    
-    if recognized_names:
-        df = pd.DataFrame({f"{lecture_name} ({lecture_date})": recognized_names})
-        csv = df.to_csv(index=False)
-        st.download_button(label="Get CSV", data=csv, file_name='attendance.csv', mime='text/csv')
-        
-        
+    while run:
+        ret, frame = cap.read()
+        if not ret:
+            st.error("Failed to read frame from webcam.")
+            break
+
+        # Process the frame for face recognition
+        annotated_frame = process_frame(frame)
+
+        # Display the annotated frame in Streamlit
+        frame_placeholder.image(cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB), channels="RGB")
+
+        # Stop the loop if 'q' is pressed
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
